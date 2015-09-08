@@ -100,15 +100,85 @@
     }
 }
 
-#if TARGET_IPHONE_SIMULATOR
-- (BOOL)connection:(NSURLConnection *)_connection canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace *)protectionSpace
+    
+
+#ifdef PIN_TO_SSL
+
+// Copyright  https://www.owasp.org/index.php/Certificate_and_Public_Key_Pinning#iOS
+-(BOOL)connection:(NSURLConnection *)connection canAuthenticateAgainstProtectionSpace:(NSURLProtectionSpace*)space
 {
-    return [protectionSpace.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust];
+    return [[space authenticationMethod] isEqualToString: NSURLAuthenticationMethodServerTrust];
 }
-- (void)connection:(NSURLConnection *)_connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
+
+
+- (void)connection:(NSURLConnection *)connection didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge
 {
-    [challenge.sender useCredential:[NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust] forAuthenticationChallenge:challenge];
+    if ([[[challenge protectionSpace] authenticationMethod] isEqualToString: NSURLAuthenticationMethodServerTrust])
+    {
+        do
+        {
+            SecTrustRef serverTrust = [[challenge protectionSpace] serverTrust];
+            if(nil == serverTrust)
+                break; /* failed */
+            
+            OSStatus status = SecTrustEvaluate(serverTrust, NULL);
+            if(!(errSecSuccess == status))
+                break; /* failed */
+            
+            SecCertificateRef serverCertificate = SecTrustGetCertificateAtIndex(serverTrust, 0);
+            if(nil == serverCertificate)
+                break; /* failed */
+            
+            CFDataRef serverCertificateData = SecCertificateCopyData(serverCertificate);
+            if(nil == serverCertificateData)
+                break; /* failed */
+            
+            const UInt8* const data = CFDataGetBytePtr(serverCertificateData);
+            const CFIndex size = CFDataGetLength(serverCertificateData);
+            NSData* cert1 = [NSData dataWithBytes:data length:(NSUInteger)size];
+            
+            NSData* cert2 = [self dataFromHexString:[[[PIN_TO_SSL stringByReplacingOccurrencesOfString:@"<" withString:@""]stringByReplacingOccurrencesOfString:@">" withString:@""] stringByReplacingOccurrencesOfString:@" " withString:@""]];
+            
+            if(nil == cert1 || nil == cert2)
+                break; /* failed */
+            
+            const BOOL equal = [cert1 isEqualToData:cert2];
+            if(!equal)
+                break; /* failed */
+            
+            // The only good exit point
+            return [[challenge sender] useCredential: [NSURLCredential credentialForTrust: serverTrust]
+                          forAuthenticationChallenge: challenge];
+        } while(0);
+        
+        // Bad dog
+        return [[challenge sender] cancelAuthenticationChallenge: challenge];
+    }
 }
+
+
+
+
+- (NSData *)dataFromHexString:(NSString *)string
+{
+    // Converts the NSData string representation back into NSData object
+    const char *chars = [string UTF8String];
+    int i = 0, len = (int)string.length;
+    
+    NSMutableData *data = [NSMutableData dataWithCapacity:len / 2];
+    char byteChars[3] = {'\0','\0','\0'};
+    unsigned long wholeByte;
+    
+    while (i < len)
+    {
+        byteChars[0] = chars[i++];
+        byteChars[1] = chars[i++];
+        wholeByte = strtoul(byteChars, NULL, 16);
+        [data appendBytes:&wholeByte length:1];
+    }
+    return data;
+}
+
 #endif
 
 @end
