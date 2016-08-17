@@ -257,6 +257,36 @@ You can clear the default headers anytime with:
 [UNIRest clearDefaultHeaders];
 ```
 
+PIN TO SSL
+
+1. Use the following to fetch the cert of interest. It will be in PEM format.
+PEM format is (--BEGIN CERTIFICATE--, --END CERTIFICATE--).
+
+ $ echo "Get HTTP/1.0" | openssl s_client -showcerts -connect www.random.org:443
+
+Save the certifcate of interest to a file (for example, "random-org.pem").
+The certificate is the leaf, and should be located at certifcates[0]. Then, convert the certifcate to DER.
+
+$ openssl x509 -in "random-org.pem" -inform PEM -out "random-org.der" -outform DER
+
+
+2. To get string representation of DER cert:
+NSData * myData = [NSData dataWithContentsOfURL:[[NSBundle mainBundle] URLForResource:@"mycert" withExtension:@"der"]];
+NSLog(@"%@",myData);
+
+3. Add to Podfile 
+post_install do |installer_representation|
+    installer_representation.project.targets.each do |target|
+        if target.name == "Pods-DIAGEO-Unirest"
+            target.build_configurations.each do |config|
+                config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
+                config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PIN_TO_SSL="\@\"< cert >\""'
+            end
+        end
+    end
+end
+
+
 ----
 
 Made with &#9829; from the [Mashape](https://www.mashape.com/) team
